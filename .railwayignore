@@ -1,0 +1,23 @@
+# Build artifacts (Railway rebuilds these)
+node_modules
+dist
+*.tsbuildinfo
+coverage
+
+# Local secrets — set these as Railway env vars instead
+.env
+.env.local
+service-account.json
+*.pem
+
+# Local-only tooling
+.claude
+.vscode
+.idea
+.git
+.github
+
+# Misc
+*.log
+*.tmp
+.DS_Store

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Configure &middot; Maintain File Store KB</title>
+<meta name="description" content="Authentication keys and File Search stores for the Maintain File Store KB API." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/site.css" />
+</head>
+<body>
+
+  <div class="breadcrumb">
+    <a href="/">Maintain</a> &rarr; <a href="/">File Store KB</a> &rarr; Configure
+  </div>
+
+  <div class="kicker">CONFIGURATION</div>
+  <h1><span class="hl">Configure</span></h1>
+  <p class="deck">Authenticate against the API, manage your File Search stores, and upload documents directly into the active store. Everything on the <a href="/console">console</a> &mdash; ask, sync, activity &mdash; depends on what's set here.</p>
+  <div class="byline"><strong>Maintain Technology</strong> &middot; 2026</div>
+
+  <div id="nav-mount"></div>
+
+  <!-- Section I — Connection -->
+  <section>
+    <div class="section-marker"><span class="section-num">01</span><h2><span class="hl">Connection</span></h2></div>
+    <p class="lede">Save your Knowledge Base API key once and the rest of the site uses it via <span class="meta-mono">x-api-key</span>. The Gemini key is optional &mdash; leave blank to use the server's configured default.</p>
+
+    <label for="kbKey">KB API key &mdash; sent as <span class="meta-mono">x-api-key</span></label>
+    <input id="kbKey" type="password" placeholder="KB_API_KEY from the server's .env" autocomplete="off" />
+
+    <label for="geminiKey">Gemini API key &mdash; optional override</label>
+    <input id="geminiKey" type="password" placeholder="leave blank to use the server default" autocomplete="off" />
+
+    <div class="actions">
+      <button type="button" id="connectBtn">Save &amp; verify</button>
+      <span id="connState" class="pill bad">not connected</span>
+    </div>
+  </section>
+
+  <!-- Section II — Stores -->
+  <section>
+    <div class="section-marker"><span class="section-num">02</span><h2><span class="hl">Stores</span></h2></div>
+    <p class="lede">A store is a managed vector index. Create one, then select it as the active store for the rest of the site. Deleting a store removes its indexed documents.</p>
+
+    <label for="newStoreName">New store name</label>
+    <div class="row">
+      <input id="newStoreName" placeholder="e.g. mt-knowledge-base" />
+      <button type="button" id="createStoreBtn">Create</button>
+      <button type="button" id="refreshStoresBtn" class="ghost">Refresh</button>
+    </div>
+
+    <div id="storeList" class="store-list"></div>
+
+    <p class="active-line">
+      <span class="meta-label">Active store</span>
+      <span id="activeStore" class="active-value">none selected</span>
+    </p>
+  </section>
+
+  <!-- Section III — Upload -->
+  <section>
+    <div class="section-marker"><span class="section-num">03</span><h2>Upload <span class="hl">documents</span></h2></div>
+    <p class="lede">Push files directly into the active store. PDF, Word, Excel, PowerPoint, text, Markdown, CSV, or source code. Audio, video, and files over 100&nbsp;MB are skipped automatically. For bulk ingestion from a Drive folder, use <a href="/console">Drive sync</a> on the console.</p>
+
+    <label for="fileInput">Files to upload</label>
+    <input id="fileInput" type="file" multiple />
+
+    <div class="actions">
+      <button type="button" id="uploadBtn">Upload &amp; index</button>
+      <button type="button" id="listDocsBtn" class="ghost">View indexed documents</button>
+    </div>
+
+    <pre id="log" class="log">Ready.</pre>
+  </section>
+
+  <div id="footer-mount"></div>
+
+<script src="/js/site.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = MT.$;
+  MT.mountChrome();
+
+  // ── Hydrate fields from localStorage ───────────────────────────
+  $("kbKey").value = MT.getKbKey();
+  $("geminiKey").value = MT.getGeminiKey();
+
+  function paintActiveLine() {
+    var s = MT.getActiveStore();
+    $("activeStore").textContent = s.name ? (s.display + "  —  " + s.name) : "none selected";
+  }
+  paintActiveLine();
+
+  function setConnected(ok) {
+    var pill = $("connState");
+    pill.textContent = ok ? "connected" : "not connected";
+    pill.className = "pill " + (ok ? "ok" : "bad");
+  }
+
+  // ── Connect / verify ───────────────────────────────────────────
+  async function connect() {
+    var kbKey  = $("kbKey").value.trim();
+    var gemKey = $("geminiKey").value.trim();
+    if (!kbKey) { MT.log("Enter the KB API key first.", "err"); return; }
+    MT.setKeys(kbKey, gemKey);
+    try {
+      await MT.busy($("connectBtn"), async function () {
+        var data = await MT.api("GET", "/v1/stores");
+        setConnected(true);
+        MT.log("Connected. " + (data.stores ? data.stores.length : 0) + " store(s) found.", "ok");
+        renderStores(data.stores || []);
+      });
+    } catch (err) {
+      setConnected(false);
+      MT.log(err.message || String(err), "err");
+    }
+  }
+
+  // ── Stores list ────────────────────────────────────────────────
+  async function loadStores() {
+    var data = await MT.api("GET", "/v1/stores");
+    renderStores(data.stores || []);
+    return data.stores || [];
+  }
+
+  function renderStores(stores) {
+    var box = $("storeList");
+    box.innerHTML = "";
+    if (!stores.length) {
+      box.innerHTML = '<p class="empty">No stores yet &mdash; create one above.</p>';
+      return;
+    }
+    var active = MT.getActiveStore().name;
+    stores.forEach(function (s) {
+      var id = MT.storeId(s.name);
+      var sel = s.name === active;
+      var row = document.createElement("div");
+      row.className = "store" + (sel ? " sel" : "");
+      var docs = (s.activeDocumentsCount != null) ? (s.activeDocumentsCount + " doc(s)") : "";
+      row.innerHTML =
+        '<div class="meta">' +
+          '<div class="name">' + MT.escapeHtml(s.displayName || id) +
+            (sel ? ' <span class="pill ok">active</span>' : '') + '</div>' +
+          '<div class="sub">' + MT.escapeHtml(s.name || "") + (docs ? "  &middot;  " + docs : "") + '</div>' +
+        '</div>' +
+        '<div class="grp">' +
+          '<button type="button" class="tiny ghost" data-act="select" data-name="' +
+            MT.escapeAttr(s.name) + '" data-display="' + MT.escapeAttr(s.displayName || id) + '">Select</button>' +
+          '<button type="button" class="tiny" data-act="delete" data-id="' + MT.escapeAttr(id) + '">Delete</button>' +
+        '</div>';
+      box.appendChild(row);
+    });
+  }
+
+  async function createStore() {
+    var name = $("newStoreName").value.trim();
+    if (!name) { MT.log("Enter a name for the new store.", "err"); return; }
+    try {
+      await MT.busy($("createStoreBtn"), async function () {
+        var store = await MT.api("POST", "/v1/stores", { json: { displayName: name } });
+        MT.log("Created store: " + store.name, "ok");
+        $("newStoreName").value = "";
+        var stores = await loadStores();
+        var match = stores.filter(function (s) { return s.name === store.name; })[0];
+        MT.setActiveStore(store.name, (match && match.displayName) || name);
+        paintActiveLine();
+        renderStores(stores);
+      });
+    } catch (err) {
+      MT.log(err.message || String(err), "err");
+    }
+  }
+
+  async function deleteStore(id) {
+    if (!confirm("Delete store " + id + "? This removes its indexed documents.")) return;
+    try {
+      await MT.api("DELETE", "/v1/stores/" + encodeURIComponent(id) + "?force=true");
+      MT.log("Deleted store: " + id, "ok");
+      if (MT.storeId(MT.getActiveStore().name) === id) {
+        MT.setActiveStore("", "");
+        paintActiveLine();
+      }
+      renderStores(await loadStores());
+    } catch (err) {
+      MT.log(err.message || String(err), "err");
+    }
+  }
+
+  $("storeList").addEventListener("click", function (e) {
+    var btn = e.target.closest ? e.target.closest("button") : null;
+    if (!btn) return;
+    var act = btn.getAttribute("data-act");
+    if (act === "select") {
+      MT.setActiveStore(btn.getAttribute("data-name"), btn.getAttribute("data-display"));
+      paintActiveLine();
+      MT.log("Active store set to: " + btn.getAttribute("data-display"), "ok");
+      MT.api("GET", "/v1/stores").then(function (d) { renderStores(d.stores || []); }).catch(function () {});
+    } else if (act === "delete") {
+      deleteStore(btn.getAttribute("data-id"));
+    }
+  });
+
+  $("refreshStoresBtn").addEventListener("click", function () {
+    MT.busy($("refreshStoresBtn"), async function () {
+      try {
+        renderStores(await loadStores());
+        MT.log("Store list refreshed.", "ok");
+      } catch (err) {
+        MT.log(err.message || String(err), "err");
+      }
+    });
+  });
+
+  $("connectBtn").addEventListener("click", connect);
+  $("createStoreBtn").addEventListener("click", createStore);
+
+  function requireStore() {
+    if (!MT.getActiveStore().name) {
+      MT.log("Select an active store first (section 02).", "err");
+      return false;
+    }
+    return true;
+  }
+
+  // ── Upload ─────────────────────────────────────────────────────
+  async function uploadFiles() {
+    if (!requireStore()) return;
+    var files = $("fileInput").files;
+    if (!files.length) { MT.log("Choose one or more files first.", "err"); return; }
+    try {
+      await MT.busy($("uploadBtn"), async function () {
+        var id = MT.storeId(MT.getActiveStore().name);
+        var done = 0;
+        for (var i = 0; i < files.length; i++) {
+          var f = files[i];
+          MT.log("Uploading " + f.name + " (" + Math.round(f.size / 1024) + " KB)…");
+          var fd = new FormData();
+          fd.append("file", f, f.name);
+          try {
+            await MT.api("POST", "/v1/stores/" + encodeURIComponent(id) + "/upload", { form: fd });
+            done++;
+            MT.log("Indexed: " + f.name, "ok");
+          } catch (err) {
+            MT.log("Failed: " + f.name + " — " + err.message, "err");
+          }
+        }
+        MT.log("Upload finished: " + done + "/" + files.length + " indexed.", "ok");
+        $("fileInput").value = "";
+      });
+    } catch (err) {
+      MT.log(err.message || String(err), "err");
+    }
+  }
+
+  async function listDocs() {
+    if (!requireStore()) return;
+    try {
+      await MT.busy($("listDocsBtn"), async function () {
+        var id = MT.storeId(MT.getActiveStore().name);
+        var data = await MT.api("GET", "/v1/stores/" + encodeURIComponent(id) + "/documents");
+        var docs = data.documents || [];
+        MT.log("Documents in store (" + docs.length + "):");
+        docs.forEach(function (d) {
+          MT.log("  • " + (d.displayName || d.name) + (d.state ? "  [" + d.state + "]" : ""));
+        });
+        if (!docs.length) MT.log("  (none yet)");
+      });
+    } catch (err) {
+      MT.log(err.message || String(err), "err");
+    }
+  }
+
+  $("uploadBtn").addEventListener("click", uploadFiles);
+  $("listDocsBtn").addEventListener("click", listDocs);
+
+  // ── On load ────────────────────────────────────────────────────
+  (function init() {
+    if (MT.getKbKey()) {
+      MT.log("Saved key found — verifying…");
+      connect();
+    }
+  })();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Documents &middot; Maintain File Store KB</title>
+<meta name="description" content="Inspect every file indexed in a Maintain File Store — sort, filter, and verify your sources." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/site.css" />
+</head>
+<body>
+
+  <div class="narrow">
+
+    <div class="breadcrumb">
+      <a href="/">Maintain</a> &rarr; <a href="/">File Store KB</a> &rarr; Documents
+    </div>
+
+    <span class="kicker">A DOCUMENTS BROWSER</span>
+    <h1>The store, <span class="hl">on the record</span></h1>
+    <p class="deck">Inspect every file indexed in a Maintain File Store &mdash; sort, filter, and verify your sources.</p>
+
+    <div class="byline">
+      <span><strong>Maintain Technology</strong> &middot; 2026</span>
+      <span class="byline-nav"><a href="/console">Console</a><a href="/api">Swagger</a><a href="/health">Health</a></span>
+    </div>
+
+    <div id="nav-mount"></div>
+
+    <!-- Connect card (only shown when no key in localStorage) -->
+    <div id="connectCard" class="connect-card hidden">
+      <div class="label">CONNECT</div>
+      <p>Enter your <span class="meta-mono">KB_API_KEY</span> to load the file stores.</p>
+      <label for="kbKeyInput">KB API key</label>
+      <input id="kbKeyInput" type="password" placeholder="KB_API_KEY from .env" autocomplete="off" />
+      <div class="actions">
+        <button type="button" id="connectBtn">Connect</button>
+        <span id="connectMsg" class="meta-mono"></span>
+      </div>
+    </div>
+
+    <!-- §01 — Store + filters -->
+    <section>
+      <div class="section-marker"><span class="section-num">01</span><h2>The store, <span class="hl">framed</span></h2></div>
+      <p class="lede">Choose a store, narrow the view with a filter, then sort by any column. Click any row for the full document detail on the right.</p>
+
+      <div class="toolbar">
+        <div class="full">
+          <label for="storeSel">Store</label>
+          <select id="storeSel"><option value="">&mdash; select a store &mdash;</option></select>
+        </div>
+        <div>
+          <label for="filterInput">Filter &mdash; display name contains&hellip;</label>
+          <input id="filterInput" placeholder="type to filter&hellip;" />
+        </div>
+        <div>
+          <label for="stateSel">State</label>
+          <select id="stateSel">
+            <option value="">all states</option>
+            <option value="STATE_ACTIVE">active</option>
+            <option value="STATE_PROCESSING">processing</option>
+            <option value="STATE_FAILED">failed</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" id="refreshBtn" class="ghost">Refresh</button>
+      </div>
+
+      <div class="stats" id="statsBar">
+        <div class="item"><b>Loaded</b><span id="statTotal">&mdash;</span></div>
+        <div class="item"><b>Showing</b><span id="statShown">&mdash;</span></div>
+        <div class="item"><b>Active</b><span id="statActive">&mdash;</span></div>
+        <div class="item"><b>Other</b><span id="statOther">&mdash;</span></div>
+        <div class="item"><b>Total size</b><span id="statSize">&mdash;</span></div>
+        <div class="item mono"><b>Store</b><span id="statStore">none</span></div>
+      </div>
+    </section>
+
+  </div>
+  <!-- end .narrow -->
+
+  <!-- §02 — Records: wider, 2-column on desktop -->
+  <section>
+    <div class="narrow">
+      <div class="section-marker"><span class="section-num">02</span><h2>The <span class="hl">records</span></h2></div>
+    </div>
+
+    <div class="records-grid">
+      <div class="records-main">
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th class="sortable" data-key="displayName" data-type="str">Document <span class="arrow">&#8597;</span></th>
+                <th class="sortable" data-key="state"       data-type="str">State <span class="arrow">&#8597;</span></th>
+                <th class="sortable right" data-key="sizeBytes" data-type="num">Size <span class="arrow">&#8597;</span></th>
+                <th class="sortable" data-key="createTime"  data-type="str">Indexed <span class="arrow">&#8597;</span></th>
+                <th data-key="mimeType" data-type="str">MIME</th>
+              </tr>
+            </thead>
+            <tbody id="tbody">
+              <tr><td colspan="5" class="empty-row">Select a store to load documents.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pager" id="pager"></div>
+      </div>
+
+      <aside class="records-side" aria-label="Document details">
+        <div id="drawer" class="drawer">
+          <div class="d-head">
+            <h3 id="drawerTitle">Document details</h3>
+            <button type="button" class="tiny ghost" id="drawerClose">Close</button>
+          </div>
+          <div class="kv" id="drawerKv"></div>
+          <pre id="drawerJson"></pre>
+        </div>
+        <div id="drawerEmpty" class="drawer-empty">Select a document on the left to see its details here.</div>
+      </aside>
+    </div>
+  </section>
+
+  <div id="footer-mount"></div>
+
+<script src="/js/site.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = MT.$;
+  MT.mountChrome();
+
+  var state = {
+    kbKey: "",
+    geminiKey: "",
+    stores: [],
+    activeStore: "",
+    documents: [],
+    filtered: [],
+    sortKey: "displayName",
+    sortType: "str",
+    sortDir: 1,
+    page: 1,
+    pageSize: 100,
+  };
+
+  function fmtBytes(bytes) {
+    var n = typeof bytes === 'string' ? parseInt(bytes, 10) : bytes;
+    if (!n || isNaN(n)) return '—';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleString();
+    } catch (e) { return iso; }
+  }
+
+  function setLoading(msg) {
+    $('tbody').innerHTML = '<tr><td colspan="5" class="empty-row">' + MT.escapeHtml(msg) + '</td></tr>';
+  }
+  function setError(msg) {
+    $('tbody').innerHTML = '<tr><td colspan="5" class="empty-row err">' + MT.escapeHtml(msg) + '</td></tr>';
+  }
+
+  // ── connect card ─────────────────────────────────────────────
+  function showConnect(msg) {
+    $('connectCard').classList.remove('hidden');
+    if (msg) $('connectMsg').textContent = msg;
+    setTimeout(function () { $('kbKeyInput').focus(); }, 30);
+  }
+  function hideConnect() { $('connectCard').classList.add('hidden'); }
+
+  async function connect() {
+    var key = ($('kbKeyInput').value || '').trim();
+    if (!key) { $('connectMsg').textContent = 'Enter your KB_API_KEY first.'; return; }
+    state.kbKey = key;
+    MT.setKeys(key, null);
+    var btn = $('connectBtn');
+    var original = btn.textContent;
+    btn.disabled = true; btn.textContent = 'connecting…';
+    try {
+      await loadStores();
+      hideConnect();
+    } catch (e) {
+      $('connectMsg').textContent = 'Failed: ' + e.message;
+      state.kbKey = '';
+    } finally {
+      btn.disabled = false; btn.textContent = original;
+    }
+  }
+
+  // ── store loading ────────────────────────────────────────────
+  async function loadStores() {
+    var data = await MT.api('GET', '/v1/stores');
+    state.stores = data.stores || [];
+
+    var sel = $('storeSel');
+    sel.innerHTML = '<option value="">— select a store —</option>';
+    state.stores.forEach(function (s) {
+      var opt = document.createElement('option');
+      opt.value = s.name;
+      var display = s.displayName || MT.storeId(s.name);
+      var cnt = (s.activeDocumentsCount != null) ? '  (' + s.activeDocumentsCount + ' docs)' : '';
+      opt.textContent = display + cnt;
+      sel.appendChild(opt);
+    });
+
+    var url = new URL(location.href);
+    var fromUrl = (url.searchParams.get('store') || '').trim();
+    var fromLs  = MT.getActiveStore().name || '';
+    var preferred = fromUrl || fromLs;
+    if (preferred) {
+      var match = state.stores.find(function (s) {
+        return s.name === preferred || MT.storeId(s.name) === preferred;
+      });
+      if (match) {
+        sel.value = match.name;
+        await loadDocuments(match.name);
+      }
+    }
+  }
+
+  // ── documents loading ────────────────────────────────────────
+  async function loadDocuments(storeFullName) {
+    if (!storeFullName) {
+      state.activeStore = '';
+      state.documents = [];
+      state.filtered = [];
+      $('statStore').textContent = 'none';
+      document.title = 'Documents · Maintain File Store KB';
+      setLoading('Select a store to load documents.');
+      updateStatus();
+      $('pager').innerHTML = '';
+      return;
+    }
+    state.activeStore = storeFullName;
+    $('statStore').textContent = storeFullName;
+    var match = state.stores.find(function (s) { return s.name === storeFullName; });
+    var displayName = match ? (match.displayName || MT.storeId(storeFullName)) : MT.storeId(storeFullName);
+    document.title = 'Documents · ' + displayName + ' · Maintain File Store KB';
+    setLoading('Loading documents — large stores can take several seconds…');
+
+    var id = MT.storeId(storeFullName);
+    try {
+      var data = await MT.api('GET', '/v1/stores/' + encodeURIComponent(id) + '/documents');
+      state.documents = data.documents || [];
+      applyFiltersAndSort();
+    } catch (err) {
+      state.documents = [];
+      state.filtered = [];
+      updateStatus();
+      $('pager').innerHTML = '';
+      if (err.status === 401 || err.status === 403) {
+        showConnect('Authentication failed: ' + err.message);
+      } else {
+        setError('Failed to load documents: ' + err.message);
+      }
+    }
+  }
+
+  // ── filter + sort + render ───────────────────────────────────
+  function applyFiltersAndSort() {
+    var q = ($('filterInput').value || '').toLowerCase().trim();
+    var stateF = $('stateSel').value || '';
+    state.filtered = state.documents.filter(function (d) {
+      if (stateF && d.state !== stateF) return false;
+      if (q) {
+        var name = (d.displayName || d.name || '').toLowerCase();
+        if (name.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
+    sortFiltered();
+    state.page = 1;
+    render();
+  }
+
+  function sortFiltered() {
+    var key = state.sortKey, type = state.sortType, dir = state.sortDir;
+    state.filtered.sort(function (a, b) {
+      var av = a[key], bv = b[key];
+      if (type === 'num') {
+        av = parseInt(av || '0', 10); bv = parseInt(bv || '0', 10);
+        return (av - bv) * dir;
+      }
+      av = (av || '').toString().toLowerCase();
+      bv = (bv || '').toString().toLowerCase();
+      if (av < bv) return -1 * dir;
+      if (av > bv) return  1 * dir;
+      return 0;
+    });
+  }
+
+  function render() {
+    var tbody = $('tbody');
+    if (!state.filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-row">' +
+        (state.documents.length ? 'No documents match the filter.' : 'No documents in this store yet.') +
+        '</td></tr>';
+      updateStatus();
+      $('pager').innerHTML = '';
+      return;
+    }
+    var start = (state.page - 1) * state.pageSize;
+    var end = Math.min(start + state.pageSize, state.filtered.length);
+    var rows = [];
+    for (var i = start; i < end; i++) {
+      var d = state.filtered[i];
+      var name = MT.escapeHtml(d.displayName || MT.storeId(d.name) || '(unnamed)');
+      var id = MT.escapeHtml(MT.storeId(d.name));
+      var st = d.state || '';
+      var stClass = st === 'STATE_ACTIVE' ? 'active' : (st === 'STATE_FAILED' ? 'failed' : 'other');
+      var stLabel = st.replace(/^STATE_/, '').toLowerCase() || 'unknown';
+      rows.push(
+        '<tr data-idx="' + i + '">' +
+          '<td><div class="doc-name">' + name + '</div><div class="doc-id">' + id + '</div></td>' +
+          '<td><span class="state-pill ' + stClass + '">' + MT.escapeHtml(stLabel) + '</span></td>' +
+          '<td class="right">' + MT.escapeHtml(fmtBytes(d.sizeBytes)) + '</td>' +
+          '<td class="dim">' + MT.escapeHtml(fmtTime(d.createTime)) + '</td>' +
+          '<td class="mono">' + MT.escapeHtml(d.mimeType || '—') + '</td>' +
+        '</tr>'
+      );
+    }
+    tbody.innerHTML = rows.join('');
+
+    document.querySelectorAll('.tbl thead th[data-key]').forEach(function (th) {
+      var isSorted = th.getAttribute('data-key') === state.sortKey;
+      th.classList.toggle('sorted', isSorted);
+      var arrow = th.querySelector('.arrow');
+      if (arrow) arrow.textContent = isSorted ? (state.sortDir > 0 ? '↑' : '↓') : '↕';
+    });
+
+    updateStatus();
+    renderPager();
+  }
+
+  function updateStatus() {
+    var total = state.documents.length;
+    var shown = state.filtered.length;
+    var active = 0, size = 0;
+    for (var i = 0; i < total; i++) {
+      var d = state.documents[i];
+      if (d.state === 'STATE_ACTIVE') active++;
+      var n = parseInt(d.sizeBytes || '0', 10);
+      if (!isNaN(n)) size += n;
+    }
+    $('statTotal').textContent = total || '—';
+    $('statShown').textContent = total ? shown : '—';
+    $('statActive').textContent = total ? active : '—';
+    $('statOther').textContent = total ? (total - active) : '—';
+    $('statSize').textContent = total ? fmtBytes(size) : '—';
+  }
+
+  function renderPager() {
+    var pager = $('pager');
+    if (state.filtered.length <= state.pageSize) { pager.innerHTML = ''; return; }
+    var totalPages = Math.ceil(state.filtered.length / state.pageSize);
+    pager.innerHTML =
+      '<button type="button" class="tiny ghost" id="pPrev"' + (state.page <= 1 ? ' disabled' : '') + '>&larr; Prev</button>' +
+      '<span>Page ' + state.page + ' of ' + totalPages + ' &middot; ' + state.filtered.length + ' rows</span>' +
+      '<button type="button" class="tiny ghost" id="pNext"' + (state.page >= totalPages ? ' disabled' : '') + '>Next &rarr;</button>';
+    var prev = $('pPrev'), next = $('pNext');
+    if (prev) prev.onclick = function () { state.page--; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    if (next) next.onclick = function () { state.page++; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  }
+
+  // ── detail drawer (side panel) ───────────────────────────────
+  function showDrawer(d) {
+    var kv = $('drawerKv');
+    var rows = [
+      ['Display name', d.displayName || ''],
+      ['Resource name', d.name || ''],
+      ['State', (d.state || '').replace(/^STATE_/, '') || 'unknown'],
+      ['MIME', d.mimeType || ''],
+      ['Size', fmtBytes(d.sizeBytes)],
+      ['Indexed', fmtTime(d.createTime)],
+    ];
+    kv.innerHTML = rows.map(function (r) {
+      return '<b>' + MT.escapeHtml(r[0]) + '</b><span>' + MT.escapeHtml(r[1] || '—') + '</span>';
+    }).join('');
+    $('drawerTitle').textContent = d.displayName || MT.storeId(d.name) || 'Document details';
+    $('drawerJson').textContent = JSON.stringify(d, null, 2);
+    $('drawer').classList.add('open');
+    $('drawerEmpty').classList.add('hidden');
+  }
+
+  function hideDrawer() {
+    $('drawer').classList.remove('open');
+    $('drawerEmpty').classList.remove('hidden');
+    document.querySelectorAll('#tbody tr.sel').forEach(function (r) { r.classList.remove('sel'); });
+  }
+
+  // ── wiring ───────────────────────────────────────────────────
+  $('storeSel').addEventListener('change', function () {
+    var v = this.value;
+    if (v) {
+      var match = state.stores.find(function (s) { return s.name === v; });
+      MT.setActiveStore(v, match ? (match.displayName || MT.storeId(v)) : MT.storeId(v));
+    }
+    hideDrawer();
+    loadDocuments(v);
+  });
+  $('filterInput').addEventListener('input', applyFiltersAndSort);
+  $('stateSel').addEventListener('change', applyFiltersAndSort);
+  $('refreshBtn').addEventListener('click', function () {
+    if (state.activeStore) loadDocuments(state.activeStore);
+    else loadStores();
+  });
+
+  document.querySelectorAll('.tbl thead th.sortable').forEach(function (th) {
+    th.addEventListener('click', function () {
+      var k = th.getAttribute('data-key');
+      var t = th.getAttribute('data-type') || 'str';
+      if (state.sortKey === k) {
+        state.sortDir = -state.sortDir;
+      } else {
+        state.sortKey = k; state.sortType = t; state.sortDir = 1;
+      }
+      sortFiltered();
+      render();
+    });
+  });
+
+  $('tbody').addEventListener('click', function (e) {
+    var tr = e.target.closest ? e.target.closest('tr') : null;
+    if (!tr || !tr.hasAttribute('data-idx')) return;
+    document.querySelectorAll('#tbody tr.sel').forEach(function (r) { r.classList.remove('sel'); });
+    tr.classList.add('sel');
+    var idx = parseInt(tr.getAttribute('data-idx'), 10);
+    var d = state.filtered[idx];
+    if (d) showDrawer(d);
+  });
+
+  $('drawerClose').addEventListener('click', hideDrawer);
+
+  $('connectBtn').addEventListener('click', connect);
+  $('kbKeyInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') connect();
+  });
+
+  // ── init ─────────────────────────────────────────────────────
+  (function init() {
+    state.kbKey     = MT.getKbKey();
+    state.geminiKey = MT.getGeminiKey();
+    if (!state.kbKey) {
+      showConnect('No API key found. Enter your KB_API_KEY to begin.');
+    } else {
+      loadStores().catch(function (e) {
+        showConnect('Saved key did not work: ' + e.message);
+      });
+    }
+  })();
+})();
+</script>
+
+</body>
+</html>

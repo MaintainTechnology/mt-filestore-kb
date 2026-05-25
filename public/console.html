@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Console &middot; Maintain File Store KB</title>
+<meta name="description" content="Ask questions, sync Drive folders, and watch live activity against the Maintain File Store KB API." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/site.css" />
+</head>
+<body>
+
+  <div class="breadcrumb">
+    <a href="/">Maintain</a> &rarr; <a href="/">File Store KB</a> &rarr; Console
+  </div>
+
+  <div class="kicker">OPERATIONS</div>
+  <h1><span class="hl">Console</span></h1>
+  <p class="deck">Ask a grounded question, sync a Drive folder into the active store, or watch the session's activity in real time. All three operations share one connection and one active store &mdash; set yours under <a href="/configure">Configure</a>.</p>
+  <div class="byline"><strong>Maintain Technology</strong> &middot; 2026</div>
+
+  <div id="nav-mount"></div>
+
+  <!-- Status panel — connection + drive at a glance -->
+  <div class="status-grid">
+    <div class="row-l">
+      <span class="lbl">Connection</span>
+      <span class="val"><span id="connState" class="pill bad">not connected</span></span>
+    </div>
+    <div class="row-l">
+      <span class="lbl">Active store</span>
+      <span class="val" id="activeStore">none selected</span>
+    </div>
+    <div class="row-l">
+      <span class="lbl">Drive service account</span>
+      <span class="val" id="svcEmail">checking&hellip;</span>
+    </div>
+    <div class="row-l">
+      <span class="lbl">Gemini key</span>
+      <span class="val" id="gemKeyStatus">server default</span>
+    </div>
+  </div>
+
+  <!-- Tab strip — Ask / Sync / Activity -->
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab active" data-tab="ask" role="tab">Ask a question</button>
+    <button type="button" class="tab" data-tab="sync" role="tab">Drive sync</button>
+    <button type="button" class="tab" data-tab="activity" role="tab">Activity log</button>
+  </div>
+
+  <!-- Ask -->
+  <section class="tabpane" id="pane-ask" role="tabpanel" aria-label="Ask a question">
+    <p class="lede">Ask the knowledge base a question. Gemini retrieves the most relevant passages from the active store and returns a grounded answer with numbered citations.</p>
+
+    <label for="query">Question</label>
+    <textarea id="query" rows="3" placeholder="What does the rescue brief say about milestone reporting?"></textarea>
+
+    <div class="row">
+      <input id="model" class="small" placeholder="model (optional)" />
+      <input id="metaFilter" placeholder="metadata filter (optional), e.g. author=&quot;Maintain Tech&quot;" />
+    </div>
+
+    <div class="actions">
+      <button type="button" id="searchBtn">Search</button>
+    </div>
+
+    <div id="answer" class="answer-block hidden"></div>
+  </section>
+
+  <!-- Sync -->
+  <section class="tabpane hidden" id="pane-sync" role="tabpanel" aria-label="Drive sync">
+    <p class="lede">Share a Drive folder with <span id="svcEmail2" class="meta-mono">checking&hellip;</span>, then paste the folder ID or URL. <strong>Preview</strong> walks the folder without ingesting; <strong>Sync</strong> ingests every indexable file into the active store.</p>
+
+    <label for="folderId">Drive folder ID or URL</label>
+    <input id="folderId" placeholder="https://drive.google.com/drive/folders/..." />
+
+    <div class="row">
+      <label class="inline"><input type="checkbox" id="dryRun" /> Dry run (preview only)</label>
+      <input id="syncLimit" class="small" type="number" min="1" placeholder="file limit (optional)" />
+    </div>
+
+    <div class="actions">
+      <button type="button" id="previewDriveBtn" class="ghost">Preview folder</button>
+      <button type="button" id="syncDriveBtn">Sync to active store</button>
+    </div>
+
+    <p class="hint-text">You can also upload files directly &mdash; manage uploads and stores under <a href="/configure">Configure</a>.</p>
+  </section>
+
+  <!-- Activity log -->
+  <section class="tabpane hidden" id="pane-activity" role="tabpanel" aria-label="Activity log">
+    <p class="lede">A live transcript of API calls and responses for this browser session. Cleared on reload.</p>
+    <pre id="log" class="log">Ready.</pre>
+    <div class="actions">
+      <button type="button" id="clearLogBtn" class="ghost">Clear</button>
+    </div>
+  </section>
+
+  <div id="footer-mount"></div>
+
+<script src="/js/site.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = MT.$;
+
+  MT.mountChrome();
+
+  // ── Header status panel ────────────────────────────────────────
+  function paintStatus() {
+    var pill = $("connState");
+    var stored = MT.getActiveStore();
+    $("activeStore").textContent = stored.name
+      ? (stored.display + "  —  " + stored.name)
+      : "none selected";
+    $("gemKeyStatus").textContent = MT.getGeminiKey() ? "override set" : "server default";
+    if (!MT.getKbKey()) {
+      pill.textContent = "no key";
+      pill.className = "pill bad";
+    }
+  }
+  paintStatus();
+
+  async function probeConnection() {
+    if (!MT.getKbKey()) {
+      MT.log("Set the KB API key under Configure first.", "err");
+      return;
+    }
+    try {
+      await MT.api("GET", "/v1/stores");
+      var pill = $("connState");
+      pill.textContent = "connected";
+      pill.className = "pill ok";
+    } catch (err) {
+      var pill2 = $("connState");
+      pill2.textContent = "not connected";
+      pill2.className = "pill bad";
+      MT.log(err.message || String(err), "err");
+    }
+  }
+  probeConnection();
+
+  async function probeDrive() {
+    try {
+      var data = await MT.api("GET", "/v1/drive/status");
+      var msg = data.configured
+        ? (data.serviceAccountEmail || "(service account ready)")
+        : "not configured";
+      $("svcEmail").textContent = msg;
+      $("svcEmail2").textContent = msg;
+    } catch (e) {
+      $("svcEmail").textContent = "unavailable";
+      $("svcEmail2").textContent = "unavailable";
+    }
+  }
+  if (MT.getKbKey()) probeDrive();
+
+  // ── Tab switching ──────────────────────────────────────────────
+  document.querySelectorAll(".tab").forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
+      tab.classList.add("active");
+      var name = tab.getAttribute("data-tab");
+      $("pane-ask").classList.toggle("hidden", name !== "ask");
+      $("pane-sync").classList.toggle("hidden", name !== "sync");
+      $("pane-activity").classList.toggle("hidden", name !== "activity");
+    });
+  });
+
+  function requireStore() {
+    if (!MT.getActiveStore().name) {
+      MT.log("Pick an active store under Configure first.", "err");
+      return false;
+    }
+    return true;
+  }
+
+  // ── Search / answer ────────────────────────────────────────────
+  async function search() {
+    if (!requireStore()) return;
+    var query = $("query").value.trim();
+    if (!query) { MT.log("Type a question first.", "err"); return; }
+    var stored = MT.getActiveStore();
+    var body = { store: stored.name, query: query };
+    var model = $("model").value.trim();
+    var meta = $("metaFilter").value.trim();
+    if (model) body.model = model;
+    if (meta) body.metadataFilter = meta;
+    try {
+      await MT.busy($("searchBtn"), async function () {
+        MT.log("Searching: “" + query + "”");
+        var data = await MT.api("POST", "/v1/search", { json: body });
+        renderAnswer(data);
+        MT.log("Answer received (" + (data.citations ? data.citations.length : 0) +
+          " citation(s), model " + data.model + ").", "ok");
+        try { $("answer").scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+      });
+    } catch (err) {
+      MT.log(err.message || String(err), "err");
+    }
+  }
+
+  function renderAnswer(data) {
+    var box = $("answer");
+    var cites = data.citations || [];
+    var modelLabel = MT.escapeHtml(data.model || "");
+    var citeWord = cites.length === 1 ? "citation" : "citations";
+    var html =
+      '<div class="answer-card">' +
+        '<div class="answer-label">Answer &middot; ' + modelLabel +
+          (cites.length ? ' &middot; ' + cites.length + ' ' + citeWord : '') +
+        '</div>' +
+        '<div class="answer-body">' + MT.renderMarkdown(data.answer || "") + '</div>' +
+      '</div>';
+    if (cites.length) {
+      html += '<div class="sources">' +
+        '<div class="sources-label">Sources</div>' +
+        '<ol class="cite-list">';
+      cites.forEach(function (c) {
+        var title = MT.escapeHtml(c.title || "Untitled source");
+        var page = (c.page != null)
+          ? '<span class="cite-page">p. ' + MT.escapeHtml(String(c.page)) + '</span>'
+          : '';
+        var snippet = c.snippet
+          ? '<div class="cite-snip">' + MT.escapeHtml(c.snippet) + '</div>'
+          : '';
+        html += '<li class="cite-item">' +
+                  '<div class="cite-head">' +
+                    '<span class="cite-title">' + title + '</span>' + page +
+                  '</div>' + snippet +
+                '</li>';
+      });
+      html += '</ol></div>';
+    }
+    box.innerHTML = html;
+    box.classList.remove("hidden");
+  }
+
+  $("searchBtn").addEventListener("click", search);
+  $("query").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      search();
+    }
+  });
+
+  // ── Drive sync ─────────────────────────────────────────────────
+  async function previewDrive() {
+    var folder = $("folderId").value.trim();
+    if (!folder) { MT.log("Enter a Drive folder ID or URL.", "err"); return; }
+    try {
+      await MT.busy($("previewDriveBtn"), async function () {
+        var data = await MT.api("GET", "/v1/drive/files?folderId=" + encodeURIComponent(folder));
+        MT.log("Folder " + data.folderId + ": " + data.total + " file(s), " + data.indexable + " indexable.", "ok");
+        (data.files || []).forEach(function (f) {
+          MT.log("  [" + f.action + "] " + f.name + (f.reason ? "  — " + f.reason : ""));
+        });
+      });
+    } catch (err) {
+      MT.log(err.message || String(err), "err");
+    }
+  }
+
+  async function syncDrive() {
+    var folder = $("folderId").value.trim();
+    if (!folder) { MT.log("Enter a Drive folder ID or URL.", "err"); return; }
+    var dryRun = $("dryRun").checked;
+    if (!dryRun && !requireStore()) return;
+    var body = { folderId: folder, dryRun: dryRun };
+    var stored = MT.getActiveStore();
+    if (stored.name) body.store = stored.name;
+    var limit = parseInt($("syncLimit").value, 10);
+    if (limit > 0) body.limit = limit;
+    try {
+      await MT.busy($("syncDriveBtn"), async function () {
+        MT.log((dryRun ? "Previewing" : "Syncing") + " Drive folder… this can take a while.");
+        var data = await MT.api("POST", "/v1/drive/sync", { json: body });
+        if (data.dryRun) {
+          MT.log("Dry run: " + data.wouldIngest.length + " file(s) would be ingested.", "ok");
+          data.wouldIngest.forEach(function (n) { MT.log("  • " + n); });
+        } else {
+          MT.log("Sync done — indexed " + data.uploaded + ", failed " + data.failed +
+            ", skipped " + data.skipped + ". Store: " + data.store, "ok");
+          (data.results || []).forEach(function (r) {
+            if (r.status === "failed") MT.log("  failed: " + r.name + " — " + r.error, "err");
+          });
+        }
+      });
+    } catch (err) {
+      MT.log(err.message || String(err), "err");
+    }
+  }
+
+  $("previewDriveBtn").addEventListener("click", previewDrive);
+  $("syncDriveBtn").addEventListener("click", syncDrive);
+
+  // ── Activity log clear ─────────────────────────────────────────
+  $("clearLogBtn").addEventListener("click", function () {
+    $("log").textContent = "Cleared.";
+  });
+})();
+</script>
+</body>
+</html>

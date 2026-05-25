@@ -141,3 +141,15 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# ── Project-specific ─────────────────────────────────────────
+# Google Drive service account credentials (never commit)
+service-account.json
+*.pem
+
+# Claude Code — user-local overrides (settings.json IS committed)
+.claude/settings.local.json
+
+# misc OS / editor
+.DS_Store
+*.tmp

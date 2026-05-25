@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Maintain File Store KB &middot; Knowledge Base API</title>
+<meta name="description" content="Gemini File Search wrapper for Maintain Technology — index documents, sync from Google Drive, and ask grounded questions with traceable citations." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/site.css" />
+</head>
+<body>
+
+  <div class="breadcrumb">
+    Maintain Technology &rarr; Internal Tools &rarr; File Store KB
+  </div>
+
+  <div class="kicker">DEVELOPER REFERENCE</div>
+  <h1>Maintain <span class="hl">File Store</span> Knowledge Base</h1>
+  <p class="deck">A managed retrieval-augmented search API for QuoteMate &amp; the wider Maintain stack. Index documents directly or pull them from a Google Drive folder &mdash; then ask grounded questions and receive answers with traceable citations.</p>
+  <div class="byline">
+    <span><strong>Maintain Technology</strong> &middot; 2026 &middot; Powered by Gemini File Search</span>
+    <span class="byline-nav"><a href="/api">Swagger</a><a href="/health">Health</a></span>
+  </div>
+
+  <div id="nav-mount"></div>
+
+  <div class="tech-chips">
+    <span>NestJS 11</span>
+    <span>Gemini 2.5 Flash</span>
+    <span>Google Drive</span>
+    <span>Railway</span>
+  </div>
+
+  <div class="bottom-line">
+    <div class="bottom-line-label">WHAT IT DOES</div>
+    <p>Three stages, one API: <strong>create a managed store</strong>, <strong>push files</strong> into it (uploaded or synced from Drive), then <strong>ask grounded questions</strong> against the indexed corpus. Every answer carries citations back to the source passages so the originating evidence can be verified.</p>
+  </div>
+
+  <div class="cta-row">
+    <a class="cta primary" href="/console">Open the console <span class="arrow">&rarr;</span></a>
+    <a class="cta secondary" href="/configure">Configure keys &amp; stores</a>
+    <a class="cta secondary" href="/api">Swagger reference</a>
+  </div>
+
+  <!-- Section I — Concept -->
+  <section>
+    <div class="section-marker"><span class="section-num">01</span><h2>What File Search <span class="hl">is</span></h2></div>
+    <p class="lede">Gemini File Search is Google's managed retrieval-augmented generation (RAG) service. There is no separate vector database to operate &mdash; Google hosts the store, the chunking, the embeddings, and the retrieval. This service is the operational layer on top that adds Drive ingestion, an API key gate, and grounded-answer parsing.</p>
+    <p>The retrieval pipeline collapses into three calls: create a store, upload (or sync) documents into it, then run <span class="meta-mono">generateContent</span> with the <span class="meta-mono">file_search</span> tool attached. The model decides which passages to retrieve from your store, composes an answer, and returns the chunks it leaned on as grounding metadata.</p>
+  </section>
+
+  <!-- Section II — Pipeline -->
+  <section>
+    <div class="section-marker"><span class="section-num">02</span><h2>The <span class="hl">pipeline</span></h2></div>
+    <p class="lede">From an empty project to grounded answers in five steps. Steps three and four repeat as the corpus grows.</p>
+
+    <div class="numbered-cards">
+      <article class="num-card">
+        <span class="num">01</span>
+        <div class="body">
+          <div class="title">Create a store</div>
+          <p class="copy"><span class="meta-mono">POST /v1/stores</span> creates a managed File Search store. The response carries the canonical name <span class="meta-mono">fileSearchStores/{id}</span> used everywhere else.</p>
+        </div>
+      </article>
+      <article class="num-card">
+        <span class="num">02</span>
+        <div class="body">
+          <div class="title">Push documents in</div>
+          <p class="copy">Either upload directly (<span class="meta-mono">POST /v1/stores/{id}/upload</span>, multipart) or sync a Drive folder (<span class="meta-mono">POST /v1/drive/sync</span>). Uploads use Google's two-step resumable protocol under the hood, then poll the long-running operation until the document is chunked, embedded, and indexed.</p>
+        </div>
+      </article>
+      <article class="num-card">
+        <span class="num">03</span>
+        <div class="body">
+          <div class="title">Drive classification</div>
+          <p class="copy">For Drive ingestion the server walks the folder recursively, then classifies each file as <em>export</em> (Google Docs/Sheets/Slides &rarr; PDF/XLSX), <em>download</em> (regular file), or <em>skip</em> (audio, video, archive, executable, or anything over 100&nbsp;MB).</p>
+        </div>
+      </article>
+      <article class="num-card">
+        <span class="num">04</span>
+        <div class="body">
+          <div class="title">Search</div>
+          <p class="copy"><span class="meta-mono">POST /v1/search</span> runs <span class="meta-mono">generateContent</span> with the <span class="meta-mono">file_search</span> tool. Returns the answer plus deduped citations (title, page, snippet) extracted from <span class="meta-mono">groundingMetadata</span>.</p>
+        </div>
+      </article>
+      <article class="num-card">
+        <span class="num">05</span>
+        <div class="body">
+          <div class="title">Iterate</div>
+          <p class="copy">Add or remove documents; queries pick up the new state on the next call. Stores can be inspected (<span class="meta-mono">GET /v1/stores/{id}/documents</span>) and deleted (<span class="meta-mono">DELETE /v1/stores/{id}?force=true</span>) safely.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- Section III — Endpoint reference -->
+  <section>
+    <div class="section-marker"><span class="section-num">03</span><h2>Endpoint <span class="hl">reference</span></h2></div>
+    <p class="lede">Every <span class="meta-mono">/v1</span> route requires the <span class="meta-mono">x-api-key</span> header (set <span class="meta-mono">KB_API_KEY</span> on the server). The optional <span class="meta-mono">x-gemini-key</span> header overrides the server's Gemini key per request.</p>
+    <table class="endpoint-table">
+      <thead>
+        <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="method">GET</td><td class="path">/health</td><td class="purpose">Liveness check (no key required).</td></tr>
+        <tr><td class="method">POST</td><td class="path">/v1/stores</td><td class="purpose">Create a File Search store.</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/stores</td><td class="purpose">List stores.</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/stores/{id}</td><td class="purpose">Get one store.</td></tr>
+        <tr><td class="method">DELETE</td><td class="path">/v1/stores/{id}</td><td class="purpose">Delete a store (<span class="meta-mono">?force=true</span> if non-empty).</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/stores/{id}/documents</td><td class="purpose">List documents indexed in a store.</td></tr>
+        <tr><td class="method">POST</td><td class="path">/v1/stores/{id}/upload</td><td class="purpose">Upload + index one file (multipart).</td></tr>
+        <tr><td class="method">POST</td><td class="path">/v1/search</td><td class="purpose">Ask a question grounded in a store.</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/drive/status</td><td class="purpose">Check service-account configuration.</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/drive/files</td><td class="purpose">Preview &amp; classify a Drive folder.</td></tr>
+        <tr><td class="method">POST</td><td class="path">/v1/drive/sync</td><td class="purpose">Recursively ingest a Drive folder into a store.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Section IV — Drive setup -->
+  <section>
+    <div class="section-marker"><span class="section-num">04</span><h2>Drive <span class="hl">ingestion</span></h2></div>
+    <p class="lede">Drive endpoints stay disabled until the server has a service-account credential. The setup is a one-time five-minute job in Google Cloud; after that, any Drive folder shared with that service account becomes ingestible.</p>
+    <ol class="setup-list">
+      <li>Open <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer">console.cloud.google.com</a> and pick (or create) a project.</li>
+      <li>Enable the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener noreferrer">Drive API</a> for that project.</li>
+      <li>IAM &amp; Admin &rarr; Service Accounts &rarr; create one (e.g. <span class="meta-mono">mt-drive-access</span>).</li>
+      <li>On the new account &rarr; Keys &rarr; Add key &rarr; Create new key &rarr; JSON. Download.</li>
+      <li>Either save the JSON as <span class="meta-mono">service-account.json</span> at the repo root, or paste its single-line form into <span class="meta-mono">GOOGLE_SERVICE_ACCOUNT_JSON</span> (recommended on Railway).</li>
+      <li>Share the Drive folder you want to index with the service account's <span class="meta-mono">client_email</span> (shown by <span class="meta-mono">GET /v1/drive/status</span>). Viewer access is enough.</li>
+    </ol>
+    <p class="hint-text">The server reads credentials once at boot. After changing the JSON or the env var, restart the process.</p>
+  </section>
+
+  <!-- Section V — Quick start -->
+  <section>
+    <div class="section-marker"><span class="section-num">05</span><h2>Quick <span class="hl">start</span></h2></div>
+    <p class="lede">From zero to a grounded answer, with <span class="meta-mono">curl</span>. Substitute <span class="meta-mono">$KEY</span> with your <span class="meta-mono">KB_API_KEY</span> and the resulting store id where indicated.</p>
+<pre class="code">curl -X POST https://&lt;host&gt;/v1/stores \
+  -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+  -d '{ "displayName": "mt-knowledge-base" }'
+
+curl -X POST https://&lt;host&gt;/v1/stores/&lt;id&gt;/upload \
+  -H "x-api-key: $KEY" \
+  -F "file=@./spec.pdf"
+
+curl -X POST https://&lt;host&gt;/v1/search \
+  -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+  -d '{ "store": "fileSearchStores/&lt;id&gt;", "query": "Summarise the rescue plan." }'</pre>
+    <p>Prefer the browser? <a href="/console">Open the console</a> &mdash; same calls behind form controls, with grounded answers and citations rendered in place.</p>
+  </section>
+
+  <div id="footer-mount"></div>
+
+<script src="/js/site.js"></script>
+<script>MT.mountChrome();</script>
+</body>
+</html>
