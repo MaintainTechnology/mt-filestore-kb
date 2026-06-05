@@ -8,17 +8,20 @@
   var KEYS = {
     kbKey: "mt_kbKey",
     geminiKey: "mt_geminiKey",
+    anthropicKey: "mt_anthropicKey",
     activeStore: "mt_activeStore",
     activeDisplay: "mt_activeDisplay",
   };
 
   function $(id) { return document.getElementById(id); }
 
-  function getKbKey()      { return localStorage.getItem(KEYS.kbKey) || ""; }
-  function getGeminiKey()  { return localStorage.getItem(KEYS.geminiKey) || ""; }
-  function setKeys(kb, gem) {
+  function getKbKey()        { return localStorage.getItem(KEYS.kbKey)        || ""; }
+  function getGeminiKey()    { return localStorage.getItem(KEYS.geminiKey)    || ""; }
+  function getAnthropicKey() { return localStorage.getItem(KEYS.anthropicKey) || ""; }
+  function setKeys(kb, gem, ant) {
     if (kb  != null) localStorage.setItem(KEYS.kbKey, kb);
     if (gem != null) localStorage.setItem(KEYS.geminiKey, gem);
+    if (ant != null) localStorage.setItem(KEYS.anthropicKey, ant);
   }
 
   function getActiveStore() {
@@ -41,8 +44,10 @@
     var h = {};
     var kb  = getKbKey();
     var gem = getGeminiKey();
+    var ant = getAnthropicKey();
     if (kb)  h["x-api-key"] = kb;
     if (gem) h["x-gemini-key"] = gem;
+    if (ant) h["x-anthropic-key"] = ant;
     return h;
   }
 
@@ -259,6 +264,7 @@
     $: $,
     getKbKey: getKbKey,
     getGeminiKey: getGeminiKey,
+    getAnthropicKey: getAnthropicKey,
     setKeys: setKeys,
     getActiveStore: getActiveStore,
     setActiveStore: setActiveStore,

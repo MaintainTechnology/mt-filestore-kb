@@ -37,6 +37,7 @@ async function bootstrap() {
     )
     .addTag('Stores', 'Create and manage File Search stores')
     .addTag('Search', 'Ask questions grounded in your indexed documents')
+    .addTag('Agent', 'Claude-orchestrated research loop over the file stores')
     .addTag('Google Drive', 'Preview and ingest files from a Drive folder')
     .addTag('Service', 'Health and service info')
     .build();

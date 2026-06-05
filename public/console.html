@@ -43,9 +43,10 @@
     </div>
   </div>
 
-  <!-- Tab strip — Ask / Sync / Activity -->
+  <!-- Tab strip — Ask / Agent / Sync / Activity -->
   <div class="tabs" role="tablist">
     <button type="button" class="tab active" data-tab="ask" role="tab">Ask a question</button>
+    <button type="button" class="tab" data-tab="agent" role="tab">Agent (deep research)</button>
     <button type="button" class="tab" data-tab="sync" role="tab">Drive sync</button>
     <button type="button" class="tab" data-tab="activity" role="tab">Activity log</button>
   </div>
@@ -67,6 +68,29 @@
     </div>
 
     <div id="answer" class="answer-block hidden"></div>
+  </section>
+
+  <!-- Agent — Claude-orchestrated tool-use loop -->
+  <section class="tabpane hidden" id="pane-agent" role="tabpanel" aria-label="Agent">
+    <p class="lede">Hand the question to Claude as a research agent. It can list the stores, list the documents inside a store, run as many <span class="meta-mono">search_store</span> calls as it needs from different angles, and check Drive status &mdash; then synthesises one answer with citations. Slower and pricier than a single Ask, but better at open-ended or multi-store questions.</p>
+
+    <label for="agentQuery">Question</label>
+    <textarea id="agentQuery" rows="3" placeholder="What do our docs say about milestone reporting? Compare what the rescue brief and the operations manual cover."></textarea>
+
+    <div class="row">
+      <input id="agentModel" class="small" placeholder="model (optional, e.g. claude-sonnet-4-6)" />
+      <input id="agentMaxIter" class="small" type="number" min="1" max="20" placeholder="max iterations (default 10)" />
+      <label class="inline"><input type="checkbox" id="agentUseStore" checked /> Hint default store</label>
+    </div>
+
+    <label for="agentSystem">System instruction override (optional)</label>
+    <textarea id="agentSystem" rows="2" placeholder="Leave empty to use the built-in research-agent prompt."></textarea>
+
+    <div class="actions">
+      <button type="button" id="agentRunBtn">Run agent</button>
+    </div>
+
+    <div id="agentAnswer" class="answer-block hidden"></div>
   </section>
 
   <!-- Sync -->
@@ -164,6 +188,7 @@
       tab.classList.add("active");
       var name = tab.getAttribute("data-tab");
       $("pane-ask").classList.toggle("hidden", name !== "ask");
+      $("pane-agent").classList.toggle("hidden", name !== "agent");
       $("pane-sync").classList.toggle("hidden", name !== "sync");
       $("pane-activity").classList.toggle("hidden", name !== "activity");
     });
@@ -295,6 +320,114 @@
 
   $("previewDriveBtn").addEventListener("click", previewDrive);
   $("syncDriveBtn").addEventListener("click", syncDrive);
+
+  // ── Agent (Claude-orchestrated research loop) ──────────────────
+  async function runAgent() {
+    var query = $("agentQuery").value.trim();
+    if (!query) { MT.log("Type a question for the agent first.", "err"); return; }
+    var body = { query: query };
+    var model = $("agentModel").value.trim();
+    if (model) body.model = model;
+    var iterRaw = parseInt($("agentMaxIter").value, 10);
+    if (iterRaw > 0) body.maxIterations = Math.min(iterRaw, 20);
+    var sys = $("agentSystem").value.trim();
+    if (sys) body.systemInstruction = sys;
+    if ($("agentUseStore").checked) {
+      var stored = MT.getActiveStore();
+      if (stored.name) body.defaultStore = stored.name;
+    }
+    try {
+      await MT.busy($("agentRunBtn"), async function () {
+        MT.log("Agent run starting: “" + query + "”" +
+               (body.defaultStore ? "  (default store: " + body.defaultStore + ")" : "  (no default store)"));
+        var data = await MT.api("POST", "/v1/agent", { json: body });
+        renderAgentAnswer(data);
+        var trace = data.trace || [];
+        MT.log("Agent done — " + data.iterations + " iteration(s), " +
+               trace.length + " tool call(s), " +
+               (data.citations ? data.citations.length : 0) + " citation(s), model " +
+               data.model + ", stop=" + data.stopReason + ".", "ok");
+        trace.forEach(function (t, idx) {
+          var label = "  [" + (idx + 1) + "] " + t.tool;
+          if (t.error) label += "  — error: " + t.error;
+          MT.log(label);
+        });
+        try { $("agentAnswer").scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+      });
+    } catch (err) {
+      MT.log(err.message || String(err), "err");
+    }
+  }
+
+  function renderAgentAnswer(data) {
+    var box = $("agentAnswer");
+    var cites = data.citations || [];
+    var trace = data.trace || [];
+    var modelLabel = MT.escapeHtml(data.model || "");
+    var citeWord = cites.length === 1 ? "citation" : "citations";
+    var iterWord = data.iterations === 1 ? "iteration" : "iterations";
+    var html =
+      '<div class="answer-card">' +
+        '<div class="answer-label">Agent answer &middot; ' + modelLabel +
+          ' &middot; ' + data.iterations + ' ' + iterWord +
+          (cites.length ? ' &middot; ' + cites.length + ' ' + citeWord : '') +
+        '</div>' +
+        '<div class="answer-body">' + MT.renderMarkdown(data.answer || "") + '</div>' +
+      '</div>';
+    if (cites.length) {
+      html += '<div class="sources">' +
+        '<div class="sources-label">Sources</div>' +
+        '<ol class="cite-list">';
+      cites.forEach(function (c) {
+        var title = MT.escapeHtml(c.title || "Untitled source");
+        var page = (c.page != null)
+          ? '<span class="cite-page">p. ' + MT.escapeHtml(String(c.page)) + '</span>'
+          : '';
+        var snippet = c.snippet
+          ? '<div class="cite-snip">' + MT.escapeHtml(c.snippet) + '</div>'
+          : '';
+        html += '<li class="cite-item">' +
+                  '<div class="cite-head">' +
+                    '<span class="cite-title">' + title + '</span>' + page +
+                  '</div>' + snippet +
+                '</li>';
+      });
+      html += '</ol></div>';
+    }
+    if (trace.length) {
+      html += '<details class="agent-trace">' +
+        '<summary>Tool trace &middot; ' + trace.length + ' call(s)</summary>';
+      trace.forEach(function (t, idx) {
+        var safeInput = MT.escapeHtml(JSON.stringify(t.input, null, 2));
+        var safeOutput = MT.escapeHtml(
+          typeof t.output === "string"
+            ? t.output
+            : JSON.stringify(t.output, null, 2)
+        );
+        html +=
+          '<div class="trace-step">' +
+            '<div class="trace-head">' +
+              '<span class="trace-n">#' + (idx + 1) + '</span>' +
+              '<span class="trace-tool">' + MT.escapeHtml(t.tool) + '</span>' +
+              (t.error ? ' <span class="pill bad">error</span>' : '') +
+            '</div>' +
+            '<div class="trace-block"><div class="trace-block-label">input</div><pre>' + safeInput + '</pre></div>' +
+            '<div class="trace-block"><div class="trace-block-label">output</div><pre>' + safeOutput + '</pre></div>' +
+          '</div>';
+      });
+      html += '</details>';
+    }
+    box.innerHTML = html;
+    box.classList.remove("hidden");
+  }
+
+  $("agentRunBtn").addEventListener("click", runAgent);
+  $("agentQuery").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      runAgent();
+    }
+  });
 
   // ── Activity log clear ─────────────────────────────────────────
   $("clearLogBtn").addEventListener("click", function () {
