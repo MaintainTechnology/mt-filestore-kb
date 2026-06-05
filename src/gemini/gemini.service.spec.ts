@@ -1,0 +1,56 @@
+import { GeminiService, SIGNAGE_SEARCH_SYSTEM } from './gemini.service';
+
+// A ConfigService stub whose get() always returns undefined, so the service
+// falls back to its built-in defaults (base URL, model). No network is made —
+// the http client is replaced with a mock before search() runs.
+const fakeConfig = { get: () => undefined } as unknown as ConstructorParameters<
+  typeof GeminiService
+>[0];
+
+describe('SIGNAGE_SEARCH_SYSTEM', () => {
+  it('frames Gemini as a grounded brand-guideline retriever, not the adjudicator', () => {
+    expect(SIGNAGE_SEARCH_SYSTEM).toContain(
+      'signage-compliance reference engine',
+    );
+    expect(SIGNAGE_SEARCH_SYSTEM).toMatch(/retrieval and grounding, not adjudication/i);
+    expect(SIGNAGE_SEARCH_SYSTEM).toContain('Answer ONLY from the indexed');
+  });
+
+  it('keeps both franchise brands in scope', () => {
+    expect(SIGNAGE_SEARCH_SYSTEM).toMatch(/F45/);
+    expect(SIGNAGE_SEARCH_SYSTEM).toMatch(/Anytime Fitness/);
+  });
+
+  it('forbids invention and exact paint codes, and defers the verdict', () => {
+    expect(SIGNAGE_SEARCH_SYSTEM).toMatch(/Never invent/i);
+    expect(SIGNAGE_SEARCH_SYSTEM).toMatch(/paint SKU/);
+    expect(SIGNAGE_SEARCH_SYSTEM).toMatch(/downstream reviewer makes the verdict/i);
+  });
+});
+
+describe('GeminiService.search', () => {
+  it('sends SIGNAGE_SEARCH_SYSTEM as the system_instruction alongside the query', async () => {
+    const service = new GeminiService(fakeConfig);
+    const post = jest.fn().mockResolvedValue({ data: {} });
+    // Replace the internal axios instance so no real HTTP call is made.
+    (service as unknown as { http: { post: jest.Mock } }).http = { post };
+
+    await service.search(
+      'fileSearchStores/mtf45protocols-xyz',
+      'Is the internal wall logo required?',
+      undefined,
+      undefined,
+      'test-key',
+    );
+
+    expect(post).toHaveBeenCalledTimes(1);
+    const body = post.mock.calls[0][1] as {
+      system_instruction: { parts: { text: string }[] };
+      contents: { parts: { text: string }[] }[];
+    };
+    expect(body.system_instruction.parts[0].text).toBe(SIGNAGE_SEARCH_SYSTEM);
+    expect(body.contents[0].parts[0].text).toBe(
+      'Is the internal wall logo required?',
+    );
+  });
+});

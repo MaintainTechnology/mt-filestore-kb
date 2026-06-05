@@ -30,9 +30,10 @@ export class AgentController {
 
   @Post()
   @ApiOperation({
-    summary: 'Ask a Claude-orchestrated agent that searches the file stores',
+    summary:
+      'Ask the Claude signage-compliance agent that researches the brand-guideline file stores',
     description:
-      'Runs a Claude tool-use loop with access to list_stores, list_documents, search_store, and get_drive_status. Claude decides which tools to call (potentially multiple times, across multiple stores) and returns a synthesised answer with citations plus the full tool trace.',
+      'Runs a Claude tool-use loop with access to list_stores, list_documents, search_store, and get_drive_status. Claude retrieves the governing brand signage rules from the File Search stores and returns a grounded, cited compliance assessment plus the full tool trace. It does not see the franchisee photos — the image vision pass is separate; this agent supplements those findings with the authoritative brand rules.',
   })
   ask(
     @Body() dto: AgentDto,

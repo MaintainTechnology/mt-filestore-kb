@@ -12,8 +12,9 @@ import {
 export class AgentDto {
   @ApiProperty({
     description:
-      'The natural-language question for the agent. The agent will decide which tools to call (list_stores, list_documents, search_store, get_drive_status) to answer it.',
-    example: 'What does the rescue brief say about milestone reporting, and which other docs cover similar ground?',
+      'The natural-language question for the agent. The agent will decide which tools to call (list_stores, list_documents, search_store, get_drive_status) to answer it. For signage compliance, pass the signage element plus any vision findings to check against the brand guidelines.',
+    example:
+      'For an F45 studio, what does the brand guideline require for the internal wall logo and the painted V design behind it?',
   })
   @IsString()
   @MinLength(1)
@@ -39,7 +40,7 @@ export class AgentDto {
 
   @ApiPropertyOptional({
     description:
-      'Override the system instruction handed to Claude. Use this to change persona, output style, or refusal behaviour. Leave empty for the built-in research-agent prompt.',
+      'Override the system instruction handed to Claude. Use this to change persona, output style, or refusal behaviour. Leave empty for the built-in signage-compliance assistant prompt.',
   })
   @IsOptional()
   @IsString()
