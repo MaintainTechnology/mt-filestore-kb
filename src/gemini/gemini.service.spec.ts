@@ -53,4 +53,71 @@ describe('GeminiService.search', () => {
       'Is the internal wall logo required?',
     );
   });
+
+  it('retries once on a 429 rate limit, then succeeds', async () => {
+    const service = new GeminiService(fakeConfig);
+    const rateLimited = Object.assign(new Error('Too Many Requests'), {
+      isAxiosError: true,
+      response: {
+        status: 429,
+        data: {
+          error: {
+            status: 'RESOURCE_EXHAUSTED',
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                retryDelay: '0s',
+              },
+            ],
+          },
+        },
+      },
+    });
+    const post = jest
+      .fn()
+      .mockRejectedValueOnce(rateLimited)
+      .mockResolvedValueOnce({ data: {} });
+    const svc = service as unknown as {
+      http: { post: jest.Mock };
+      delay: () => Promise<void>;
+    };
+    svc.http = { post };
+    svc.delay = () => Promise.resolve(); // don't actually wait in tests
+
+    const result = await service.search(
+      'fileSearchStores/x',
+      'q',
+      undefined,
+      undefined,
+      'test-key',
+    );
+
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(result.store).toBe('fileSearchStores/x');
+  });
+
+  it('gives up after exhausting retries and lets the 429 surface as a 429', async () => {
+    const service = new GeminiService(fakeConfig);
+    const rateLimited = Object.assign(new Error('Too Many Requests'), {
+      isAxiosError: true,
+      response: { status: 429, data: { error: { status: 'RESOURCE_EXHAUSTED' } } },
+    });
+    const post = jest.fn().mockRejectedValue(rateLimited);
+    const svc = service as unknown as {
+      http: { post: jest.Mock };
+      delay: () => Promise<void>;
+    };
+    svc.http = { post };
+    svc.delay = () => Promise.resolve();
+
+    let caught: { getStatus?: () => number } | undefined;
+    try {
+      await service.search('fileSearchStores/x', 'q', undefined, undefined, 'test-key');
+    } catch (e) {
+      caught = e as { getStatus?: () => number };
+    }
+    expect(caught?.getStatus?.()).toBe(429);
+    // initial attempt + 2 retries
+    expect(post).toHaveBeenCalledTimes(3);
+  });
 });

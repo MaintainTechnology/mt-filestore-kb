@@ -152,6 +152,64 @@ export class GeminiService {
     );
   }
 
+  /**
+   * Milliseconds to wait before retrying, read from Google's RetryInfo detail
+   * on a 429 (e.g. retryDelay: "13s"). Returns undefined when not present.
+   */
+  private parseRetryDelayMs(err: AxiosError): number | undefined {
+    const data = err?.response?.data as
+      | { error?: { details?: Array<Record<string, unknown>> } }
+      | undefined;
+    for (const d of data?.error?.details ?? []) {
+      if (
+        String(d['@type'] ?? '').includes('RetryInfo') &&
+        typeof d.retryDelay === 'string'
+      ) {
+        const m = d.retryDelay.match(/([\d.]+)s/);
+        if (m) return Math.ceil(parseFloat(m[1]) * 1000);
+      }
+    }
+    return undefined;
+  }
+
+  /** Awaitable sleep. Isolated so tests can stub it out. */
+  protected delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * POST that retries on 429 RESOURCE_EXHAUSTED (free-tier rate limit),
+   * honouring Google's suggested retryDelay (capped at 20s). All other errors
+   * propagate unchanged to `fail()`. A 429 that survives the retries still
+   * surfaces as a 429 so the caller learns the quota is genuinely exhausted.
+   */
+  private async postWithRetry(
+    url: string,
+    body: unknown,
+    config: Record<string, unknown>,
+    maxRetries = 2,
+  ): Promise<any> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.http.post(url, body, config);
+      } catch (err) {
+        const ax = err as AxiosError;
+        if (ax?.response?.status === 429 && attempt < maxRetries) {
+          const backoff = Math.min(
+            this.parseRetryDelayMs(ax) ?? 2000 * (attempt + 1),
+            20000,
+          );
+          this.logger.warn(
+            `Gemini 429 rate limit — retry ${attempt + 1}/${maxRetries} in ${backoff}ms.`,
+          );
+          await this.delay(backoff);
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
   // ----- Stores -------------------------------------------------------------
 
   async createStore(
@@ -387,7 +445,7 @@ export class GeminiService {
       tools: [{ file_search: fileSearch }],
     };
     try {
-      const res = await this.http.post(
+      const res = await this.postWithRetry(
         `${this.baseUrl}/models/${useModel}:generateContent`,
         body,
         { params: { key } },
