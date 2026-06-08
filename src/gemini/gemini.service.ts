@@ -291,6 +291,22 @@ export class GeminiService {
     }
   }
 
+  async deleteDocument(documentName: string, apiKey?: string): Promise<void> {
+    const name = (documentName || '').trim();
+    if (!/^fileSearchStores\/[^/]+\/documents\/[^/]+$/.test(name)) {
+      throw new HttpException(
+        'A full document resource name (fileSearchStores/<id>/documents/<docId>) is required.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const key = this.resolveKey(apiKey);
+    try {
+      await this.http.delete(`${this.baseUrl}/${name}`, { params: { key } });
+    } catch (err) {
+      this.fail('deleteDocument', err);
+    }
+  }
+
   async listDocuments(idOrName: string, apiKey?: string): Promise<unknown[]> {
     const key = this.resolveKey(apiKey);
     const name = this.normalizeStoreName(idOrName);

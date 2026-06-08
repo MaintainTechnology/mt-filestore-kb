@@ -121,3 +121,54 @@ describe('GeminiService.search', () => {
     expect(post).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('GeminiService.deleteDocument', () => {
+  it('DELETEs the full document resource name with the api key', async () => {
+    const service = new GeminiService(fakeConfig);
+    const del = jest.fn().mockResolvedValue({ data: {} });
+    (service as unknown as { http: { delete: jest.Mock } }).http = { delete: del };
+
+    await service.deleteDocument(
+      'fileSearchStores/abc/documents/xyz',
+      'test-key',
+    );
+
+    expect(del).toHaveBeenCalledTimes(1);
+    const [url, cfg] = del.mock.calls[0];
+    expect(url).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/fileSearchStores/abc/documents/xyz',
+    );
+    expect((cfg as { params: { key: string } }).params.key).toBe('test-key');
+  });
+
+  it('rejects a name that is not a document resource (400)', async () => {
+    const service = new GeminiService(fakeConfig);
+    (service as unknown as { http: { delete: jest.Mock } }).http = {
+      delete: jest.fn(),
+    };
+    let status: number | undefined;
+    try {
+      await service.deleteDocument('fileSearchStores/abc', 'k');
+    } catch (e) {
+      status = (e as { getStatus?: () => number }).getStatus?.();
+    }
+    expect(status).toBe(400);
+  });
+
+  it('surfaces an upstream delete failure through fail()', async () => {
+    const service = new GeminiService(fakeConfig);
+    const upstream = Object.assign(new Error('Not Found'), {
+      isAxiosError: true,
+      response: { status: 404, data: { error: { message: 'doc gone' } } },
+    });
+    const del = jest.fn().mockRejectedValue(upstream);
+    (service as unknown as { http: { delete: jest.Mock } }).http = { delete: del };
+    let status: number | undefined;
+    try {
+      await service.deleteDocument('fileSearchStores/abc/documents/xyz', 'k');
+    } catch (e) {
+      status = (e as { getStatus?: () => number }).getStatus?.();
+    }
+    expect(status).toBe(404);
+  });
+});
