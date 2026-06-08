@@ -86,6 +86,19 @@ export class StoresController {
     return { deleted: true, store: this.gemini.normalizeStoreName(storeId) };
   }
 
+  @Delete(':storeId/documents/:docId')
+  @ApiOperation({ summary: 'Delete a single document from a store' })
+  async deleteDocument(
+    @Param('storeId') storeId: string,
+    @Param('docId') docId: string,
+    @Headers('x-gemini-key') geminiKey?: string,
+  ) {
+    const store = this.gemini.normalizeStoreName(storeId);
+    const documentName = `${store}/documents/${docId}`;
+    await this.gemini.deleteDocument(documentName, geminiKey);
+    return { deleted: true, document: documentName };
+  }
+
   @Get(':storeId/documents')
   @ApiOperation({ summary: 'List the documents indexed in a store' })
   async listDocuments(
