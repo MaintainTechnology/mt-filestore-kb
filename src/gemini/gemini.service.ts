@@ -445,10 +445,15 @@ export class GeminiService {
     model?: string,
     metadataFilter?: string,
     apiKey?: string,
+    systemInstruction?: string,
   ): Promise<SearchResult> {
     const key = this.resolveKey(apiKey);
     const name = this.normalizeStoreName(idOrName);
     const useModel = (model || this.defaultModel).trim();
+    // Callers grounding a non-signage domain (e.g. a QuoteMate estimate store)
+    // pass their own framing; everything else keeps the signage default.
+    const systemText =
+      (systemInstruction && systemInstruction.trim()) || SIGNAGE_SEARCH_SYSTEM;
     const fileSearch: Record<string, unknown> = {
       file_search_store_names: [name],
     };
@@ -456,7 +461,7 @@ export class GeminiService {
       fileSearch.metadata_filter = metadataFilter.trim();
     }
     const body = {
-      system_instruction: { parts: [{ text: SIGNAGE_SEARCH_SYSTEM }] },
+      system_instruction: { parts: [{ text: systemText }] },
       contents: [{ parts: [{ text: query }] }],
       tools: [{ file_search: fileSearch }],
     };

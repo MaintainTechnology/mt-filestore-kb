@@ -35,4 +35,17 @@ export class SearchDto {
   @IsOptional()
   @IsString()
   metadataFilter?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Optional system instruction that frames how the model should answer. ' +
+      'Leave blank to use the default signage-compliance framing. Callers ' +
+      'grounding a different domain (e.g. a QuoteMate estimate store) should ' +
+      'pass their own instruction so answers are framed for that domain.',
+    example:
+      'You are a helpful estimate assistant. Answer only from the uploaded files and the estimate result.',
+  })
+  @IsOptional()
+  @IsString()
+  systemInstruction?: string;
 }

@@ -34,6 +34,7 @@ export class SearchController {
       dto.model,
       dto.metadataFilter,
       geminiKey,
+      dto.systemInstruction,
     );
   }
 }

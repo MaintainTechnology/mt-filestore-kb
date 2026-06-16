@@ -54,6 +54,49 @@ describe('GeminiService.search', () => {
     );
   });
 
+  it('uses a caller-supplied system instruction instead of the signage default', async () => {
+    const service = new GeminiService(fakeConfig);
+    const post = jest.fn().mockResolvedValue({ data: {} });
+    (service as unknown as { http: { post: jest.Mock } }).http = { post };
+
+    const custom =
+      'You are a QuoteMate estimate assistant. Answer only from the uploaded files and the estimate result.';
+    await service.search(
+      'fileSearchStores/paint-job-123',
+      'Why is the ceiling priced higher than the walls?',
+      undefined,
+      undefined,
+      'test-key',
+      custom,
+    );
+
+    const body = post.mock.calls[0][1] as {
+      system_instruction: { parts: { text: string }[] };
+    };
+    expect(body.system_instruction.parts[0].text).toBe(custom);
+    expect(body.system_instruction.parts[0].text).not.toBe(SIGNAGE_SEARCH_SYSTEM);
+  });
+
+  it('falls back to the signage default when the system instruction is blank', async () => {
+    const service = new GeminiService(fakeConfig);
+    const post = jest.fn().mockResolvedValue({ data: {} });
+    (service as unknown as { http: { post: jest.Mock } }).http = { post };
+
+    await service.search(
+      'fileSearchStores/x',
+      'q',
+      undefined,
+      undefined,
+      'test-key',
+      '   ',
+    );
+
+    const body = post.mock.calls[0][1] as {
+      system_instruction: { parts: { text: string }[] };
+    };
+    expect(body.system_instruction.parts[0].text).toBe(SIGNAGE_SEARCH_SYSTEM);
+  });
+
   it('retries once on a 429 rate limit, then succeeds', async () => {
     const service = new GeminiService(fakeConfig);
     const rateLimited = Object.assign(new Error('Too Many Requests'), {
